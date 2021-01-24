@@ -1,0 +1,8 @@
+class Processor
+    Fields:
+        RAM ram;
+        double registers[4];
+        int ip;
+
+    Methods:
+        executeCommands(char *buf, int size);
