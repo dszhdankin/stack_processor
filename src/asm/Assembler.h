@@ -392,7 +392,6 @@ public:
             Instruction *instruction = getLabelInstruction(logsStream, keyword);
             return instruction;
         } else {
-            logsStream << "Invalid keyword or identifier " << keyword << std::endl;
             Instruction *instruction = new Instruction;
             return instruction;
         }

@@ -25,8 +25,10 @@ public:
 
         DoubleChars buf;
         buf.db_val = val;
-        for (int i = 0; i < sizeof (double); i++)
+        for (int i = 0; i < sizeof (double); i++) {
             mem[i + address] = buf.chr_val[i];
+        }
+
     }
 
     double load(int address) {
@@ -255,18 +257,18 @@ private:
         return ProcessorStatus::SUCCESS;
     }
 
-    //TODO implement
+
     ProcessorStatus executeExactAddr(char prefixCode) {
         if (_ip + 1 + sizeof (int) > _start + _operations_size)
             return ProcessorStatus::COMMAND_ARG_ERROR;
 
         int addr = getInt(_ip + 1);
-        if (RAM::isValidAddr(addr))
+        if (!RAM::isValidAddr(addr))
             return ProcessorStatus::INVALID_RAM_ADDRESS;
 
         if (prefixCode == OperationPrefixCode::PUSH_EXACT_ADDR) {
             double val = _ram->load(addr);
-            _data_stack.push_back(addr);
+            _data_stack.push_back(val);
         } else if (prefixCode == OperationPrefixCode::POP_EXACT_ADDR) {
             if (_data_stack.empty())
                 return ProcessorStatus::DATA_STACK_UNDERFLOW;
@@ -279,8 +281,6 @@ private:
         return ProcessorStatus::SUCCESS;
     }
 
-    //TODO implement
-    //TODO put INVALID_RAM_ADDRESS status wherever it is needed
     ProcessorStatus executeUnaryNonJump(char prefixCode) {
         assert(isCommand(prefixCode) && !isJump(prefixCode) && !isNoArgsOperation(prefixCode));
 
@@ -308,6 +308,7 @@ public:
     Processor() {
         _call_stack.reserve(1000);
         _data_stack.reserve(1000);
+        _ram.reset(new RAM);
     }
     
     //TODO implement push/pop _data_stack
