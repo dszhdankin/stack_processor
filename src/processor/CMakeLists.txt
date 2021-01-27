@@ -1,1 +1,2 @@
-add_executable(processor main.cpp)
+add_executable(processor main.cpp
+        Processor.cpp)

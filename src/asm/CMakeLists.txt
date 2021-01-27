@@ -1,1 +1,1 @@
-add_executable(asm main.cpp)
+add_executable(asm main.cpp Assembler.cpp)
