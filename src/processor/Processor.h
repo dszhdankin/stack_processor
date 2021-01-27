@@ -10,10 +10,13 @@
 #include <vector>
 #include <cmath>
 #include <cstdio>
+#include <memory>
+#include <string>
 
 class RAM {
 public:
     static constexpr int MEM_SIZE = 1024 * 50;
+    static bool isValidAddr(int addr) { return addr >= 0 && addr < MEM_SIZE; }
 private:
     char mem[MEM_SIZE];
 public:
@@ -41,8 +44,10 @@ class Processor {
 private:
     char *_ip;
     char *_start;
-    double _reg[4];
+    DoubleUll _reg[4];
     int _operations_size;
+
+    std::unique_ptr<RAM> _ram;
 
     std::vector<double> _data_stack;
     std::vector<char *> _call_stack;
@@ -89,8 +94,16 @@ private:
             return 1;
         else if (isJump(prefixCode))
             return 1 + sizeof (int);
-        else
-            return 1 + sizeof (double );
+        else {
+            if (prefixCode == OperationPrefixCode::POP_REG_ADDR || prefixCode == OperationPrefixCode::PUSH_REG_VAL ||
+                prefixCode == OperationPrefixCode::PUSH_REG_ADDR || prefixCode == OperationPrefixCode::POP_REG_VAL)
+                return 2;
+            else if (prefixCode == OperationPrefixCode::PUSH_EXACT_ADDR ||
+                prefixCode == OperationPrefixCode::POP_EXACT_ADDR)
+                return 1 + sizeof (int);
+            else
+                return 1 + sizeof (double);
+        }
     }
 
     //Need to ensure prefixCode is a prefix code of jump operation
@@ -153,7 +166,7 @@ private:
                 _ip += getCommandLength(prefixCode);
         }
 
-        if (_ip >= _start || _ip < _start + _operations_size)
+        if (_ip < _start || _ip >= _start + _operations_size)
             return ProcessorStatus::INVALID_INSTRUCTION_POINTER;
         return ProcessorStatus::SUCCESS;
     }
@@ -198,16 +211,96 @@ private:
             }
         }
 
+        _ip += getCommandLength(prefixCode);
+        return ProcessorStatus::SUCCESS;
+    }
+
+    ProcessorStatus executeRegArg(char prefixCode) {
+        if (_ip + 2 > _start + _operations_size)
+            return ProcessorStatus::COMMAND_ARG_ERROR;
+
+        char regCode = _ip[1];
+        double val;
+        int addr;
+        switch (prefixCode) {
+            case OperationPrefixCode::POP_REG_VAL:
+                if (_data_stack.empty())
+                    return ProcessorStatus::DATA_STACK_UNDERFLOW;
+                val = _data_stack.back();
+                _data_stack.pop_back();
+                _reg[regCode].db_val = val;
+                break;
+            case OperationPrefixCode::PUSH_REG_VAL:
+                val = _reg[regCode].db_val;
+                _data_stack.push_back(val);
+                break;
+            case OperationPrefixCode::PUSH_REG_ADDR:
+                addr = _reg[regCode].ull_val;
+                if (!RAM::isValidAddr(addr))
+                    return ProcessorStatus::INVALID_RAM_ADDRESS;
+                val = _ram->load(addr);
+                _data_stack.push_back(val);
+                break;
+            case OperationPrefixCode::POP_REG_ADDR:
+                if (_data_stack.empty())
+                    return ProcessorStatus::DATA_STACK_UNDERFLOW;
+                addr = _reg[regCode].ull_val;
+                if (!RAM::isValidAddr(addr))
+                    return ProcessorStatus::INVALID_RAM_ADDRESS;
+                val = _data_stack.back();
+                _data_stack.pop_back();
+                _ram->store(val, addr);
+        }
+        _ip += 2;
         return ProcessorStatus::SUCCESS;
     }
 
     //TODO implement
+    ProcessorStatus executeExactAddr(char prefixCode) {
+        if (_ip + 1 + sizeof (int) > _start + _operations_size)
+            return ProcessorStatus::COMMAND_ARG_ERROR;
+
+        int addr = getInt(_ip + 1);
+        if (RAM::isValidAddr(addr))
+            return ProcessorStatus::INVALID_RAM_ADDRESS;
+
+        if (prefixCode == OperationPrefixCode::PUSH_EXACT_ADDR) {
+            double val = _ram->load(addr);
+            _data_stack.push_back(addr);
+        } else if (prefixCode == OperationPrefixCode::POP_EXACT_ADDR) {
+            if (_data_stack.empty())
+                return ProcessorStatus::DATA_STACK_UNDERFLOW;
+            double val = _data_stack.back();
+            _data_stack.pop_back();
+            _ram->store(val, addr);
+        }
+
+        _ip += 1 + sizeof (int);
+        return ProcessorStatus::SUCCESS;
+    }
+
+    //TODO implement
+    //TODO put INVALID_RAM_ADDRESS status wherever it is needed
     ProcessorStatus executeUnaryNonJump(char prefixCode) {
         assert(isCommand(prefixCode) && !isJump(prefixCode) && !isNoArgsOperation(prefixCode));
 
-        if (prefixCode == OperationPrefixCode::PUSH_EXACT_ADDR || prefixCode == OperationPrefixCode::POP_EXACT_ADDR) {
+        if (prefixCode == OperationPrefixCode::POP_REG_VAL || prefixCode == OperationPrefixCode::PUSH_REG_VAL ||
+            prefixCode == OperationPrefixCode::PUSH_REG_ADDR || prefixCode == OperationPrefixCode::POP_REG_ADDR) {
+            return executeRegArg(prefixCode);
+        } else if (prefixCode == OperationPrefixCode::POP_EXACT_ADDR ||
+            prefixCode == OperationPrefixCode::PUSH_EXACT_ADDR) {
+            return executeExactAddr(prefixCode);
+        } else if (prefixCode == OperationPrefixCode::PUSH_EXACT_VAL) {
+            if (_ip + 1 + sizeof (double) > _start + _operations_size)
+                return ProcessorStatus::COMMAND_ARG_ERROR;
 
+            double val = getDouble(_ip + 1);
+            _data_stack.push_back(val);
+            _ip += 1 + sizeof (double);
+            return ProcessorStatus::SUCCESS;
         }
+
+        return ProcessorStatus::UNRECOGNIZED_COMMAND;
     }
 
 public:
@@ -216,7 +309,8 @@ public:
         _call_stack.reserve(1000);
         _data_stack.reserve(1000);
     }
-
+    
+    //TODO implement push/pop _data_stack
     ProcessorStatus executeOperations(char *start, int size) {
         std::memset(_reg, 0, sizeof(double) * 4);
         _start = _ip = start;
@@ -240,9 +334,34 @@ public:
                 if (status != ProcessorStatus::SUCCESS)
                     return status;
             } else {
-
+                ProcessorStatus status = executeUnaryNonJump(prefixCode);
+                if (status != ProcessorStatus::SUCCESS)
+                    return status;
             }
 
+        }
+
+        return ProcessorStatus::SUCCESS;
+    }
+
+    static std::string statusToStr(ProcessorStatus status) {
+        switch (status) {
+            case ProcessorStatus::SUCCESS:
+                return "success";
+            case ProcessorStatus::DATA_STACK_UNDERFLOW:
+                return "data stack underflow";
+            case ProcessorStatus::UNRECOGNIZED_COMMAND:
+                return "unrecognized command";
+            case ProcessorStatus::INVALID_RAM_ADDRESS:
+                return "invalid RAM address";
+            case ProcessorStatus::COMMAND_ARG_ERROR:
+                return "command arg error";
+            case ProcessorStatus::INVALID_INSTRUCTION_POINTER:
+                return "invalid instruction pointer";
+            case ProcessorStatus::CALL_STACK_UNDERFLOW:
+                return "call stack underflow";
+            default:
+                return "";
         }
     }
 

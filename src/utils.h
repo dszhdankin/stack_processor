@@ -48,7 +48,8 @@ enum ProcessorStatus {
     COMMAND_ARG_ERROR,
     CALL_STACK_UNDERFLOW,
     DATA_STACK_UNDERFLOW,
-    INVALID_INSTRUCTION_POINTER
+    INVALID_INSTRUCTION_POINTER,
+    INVALID_RAM_ADDRESS
 };
 
 union DoubleChars {
@@ -59,6 +60,11 @@ union DoubleChars {
 union IntChars {
     int itn_val = 0;
     char chr_val[sizeof (int)];
+};
+
+union DoubleUll {
+    unsigned long long ull_val;
+    double db_val;
 };
 
 constexpr double PROCESSOR_EPSILON = 1e-9;

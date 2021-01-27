@@ -12,89 +12,17 @@
 #include <exception>
 #include <cmath>
 #include <limits>
-
-enum ProcessorLimits {
-    MEM_SIZE = 1024 * 1024
-};
-
-class Assembler {
-private:
-    std::istream &_in;
-    std::ostream &_out;
-    std::ostream &_assemblerLogsStream;
-
-    friend class InstructionFactory;
-
-public:
-    Assembler(std::istream &in, std::ostream &out, std::ostream &logs): _in(in), _out(out), _assemblerLogsStream(logs){
-
-    }
-
-    bool assembleAll() {
-        return false;
-    }
-
-
-
-};
+#include <vector>
+#include "../utils.h"
 
 enum InstructionStatus {
-    SUCCESS = 0,
-    FAILED
-};
-
-enum OperationPrefixCode {
-    IN = 1, //Reads from stdin and pushes to stack
-    OUT, //Pops from stack and writes to stdout
-    PUSH_REG_VAL,
-    PUSH_EXACT_VAL,
-    PUSH_REG_ADDR,
-    PUSH_EXACT_ADDR,
-    POP_REG_VAL,
-    POP_EXACT_ADDR,
-    POP_REG_ADDR,
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    SIN,
-    COS,
-    SQRT,
-    JMP_OFFSET_EXACT_VAL,
-    JE_OFFSET_EXACT_VAL,
-    JNE_OFFSET_EXACT_VAL,
-    JA_OFFSET_EXACT_VAL,
-    JAE_OFFSET_EXACT_VAL,
-    JB_OFFSET_EXACT_VAL,
-    JBE_OFFSET_EXACT_VAL,
-    CALL_OFFSET_EXACT_VAL,
-    JMP_OFFSET_REG,
-    JE_OFFSET_REG,
-    JNE_OFFSET_REG,
-    JA_OFFSET_REG,
-    JAE_OFFSET_REG,
-    JB_OFFSET_REG,
-    JBE_OFFSET_REG,
-    CALL_OFFSET_REG,
-    RET_OFFSET,
-    HALT
-};
-
-enum RegisterCode {
-    AX = 1,
-    BX,
-    CX,
-    DX,
-    IP, //instruction pointer
-    DB, //data base (it's value and values above stand for addressing data)
-    DP  //data pointer (stands for storing pointers to data)
+        OK = 0,
+        FAILED
 };
 
 class Instruction {
 protected:
     InstructionStatus _status;
-
-    friend class InstructionFactory;
 
 public:
     Instruction() {
@@ -115,90 +43,6 @@ public:
     virtual ~Instruction() {}
 };
 
-class IOInstruction : public Instruction {
-private:
-    OperationPrefixCode _prefixCode;
-
-    friend class InstructionFactory;
-
-public:
-    IOInstruction(OperationPrefixCode prefixCode) {
-        _prefixCode = prefixCode;
-        _status = InstructionStatus::SUCCESS;
-    }
-
-    bool tryGetOperationCode(char *buf, int bufSize, int instructionAddress) override {
-        if (bufSize < 1)
-            return false;
-        buf[0] = static_cast<char>(_prefixCode);
-        return true;
-    }
-
-    int getOperationSize() override {
-        return 1;
-    }
-
-    virtual ~IOInstruction() {}
-};
-
-class StackOperationInstruction : public Instruction {
-private:
-    OperationPrefixCode _prefixCode;
-    char _operationArgument[8];
-    int _argumentSize;
-
-    friend class InstructionFactory;
-
-public:
-    StackOperationInstruction(OperationPrefixCode prefixCode, char *operationArgument, int argumentSize) {
-        assert(argumentSize > 0 && argumentSize <= 8);
-        _prefixCode = prefixCode;
-        std::memcpy(_operationArgument, operationArgument, argumentSize);
-        _argumentSize = argumentSize;
-        _status = InstructionStatus::SUCCESS;
-    }
-
-    bool tryGetOperationCode(char *buf, int bufSize, int instructionAddress) override {
-        if (bufSize < 1 + _argumentSize)
-            return false;
-        buf[0] = static_cast<char>(_prefixCode);
-        std::memcpy(buf + 1, _operationArgument, _argumentSize);
-        return true;
-    }
-
-    int getOperationSize() override {
-        return 1 + _argumentSize;
-    }
-
-    virtual ~StackOperationInstruction() {}
-};
-
-class MathOperationInstruction : public Instruction {
-private:
-    OperationPrefixCode _prefixCode;
-
-    friend class InstructionFactory;
-
-public:
-    MathOperationInstruction(OperationPrefixCode prefixCode) {
-        _prefixCode = prefixCode;
-        _status = InstructionStatus::SUCCESS;
-    }
-
-    bool tryGetOperationCode(char *buf, int bufSize, int instructionAddress) override {
-        if (bufSize < 1)
-            return false;
-        buf[0] = static_cast<char>(_prefixCode);
-        return true;
-    }
-
-    int getOperationSize() override {
-        return 1;
-    }
-
-    virtual ~MathOperationInstruction() {}
-};
-
 class JumpInstruction : public Instruction {
 private:
     std::unordered_map<std::string, int> &_identifiersTable;
@@ -210,9 +54,9 @@ private:
 public:
     JumpInstruction(OperationPrefixCode prefixCode, std::string &argumentIdentifier,
                     std::unordered_map<std::string, int> &identifiersTable):
-    _identifiersTable(identifiersTable), _argumentIdentifier(argumentIdentifier){
+            _identifiersTable(identifiersTable), _argumentIdentifier(argumentIdentifier){
         _prefixCode = prefixCode;
-        _status = InstructionStatus::SUCCESS;
+        _status = InstructionStatus::OK;
     }
 
     bool tryGetOperationCode(char *buf, int bufSize, int instructionAddress) override {
@@ -246,11 +90,8 @@ private:
 
 public:
 
-    LabelInstruction(std::string &identifier): _identifier(identifier) {
-        _status = InstructionStatus::SUCCESS;
-    }
-    LabelInstruction(std::string &&identifier): _identifier(identifier) {
-        _status = InstructionStatus::SUCCESS;
+    LabelInstruction(const std::string &identifier): _identifier(identifier) {
+        _status = InstructionStatus::OK;
     }
 
     std::string getIdentifier() {
@@ -262,37 +103,65 @@ public:
 
 };
 
-class TerminateInstruction : public Instruction {
+class NoArgsInstruction : public Instruction {
 private:
     OperationPrefixCode _prefixCode;
-
-    friend class InstructionFactory;
-
 public:
-
-    TerminateInstruction(OperationPrefixCode prefixCode) {
+    NoArgsInstruction(OperationPrefixCode prefixCode) {
         _prefixCode = prefixCode;
-        _status = InstructionStatus::SUCCESS;
+        _status = InstructionStatus::OK;
     }
 
-    int getOperationSize() {
-        return 1;
-    }
-
-    bool tryGetOperationCode(char *buf, int bufSize, int instructionAddress) {
+    bool tryGetOperationCode(char *buf, int bufSize, int instructionAddress) override {
         if (bufSize < 1)
             return false;
         buf[0] = static_cast<char>(_prefixCode);
         return true;
     }
 
+    int getOperationSize() override {
+        return 1;
+    }
+
+    virtual ~NoArgsInstruction() {}
 };
 
-//TODO implement instruction factory
-class InstructionFactory {
+class UnaryInstruction : public Instruction {
+private:
+    OperationPrefixCode _prefixCode;
+    char _operationArgument[8];
+    int _argumentSize;
+
+public:
+    UnaryInstruction(OperationPrefixCode prefixCode, char *operationArgument, int argumentSize) {
+        assert(argumentSize > 0 && argumentSize <= 8);
+        _prefixCode = prefixCode;
+        std::memcpy(_operationArgument, operationArgument, argumentSize);
+        _argumentSize = argumentSize;
+        _status = InstructionStatus::OK;
+    }
+
+    bool tryGetOperationCode(char *buf, int bufSize, int instructionAddress) override {
+        if (bufSize < 1 + _argumentSize)
+            return false;
+        buf[0] = static_cast<char>(_prefixCode);
+        std::memcpy(buf + 1, _operationArgument, _argumentSize);
+        return true;
+    }
+
+    int getOperationSize() override {
+        return 1 + _argumentSize;
+    }
+
+    virtual ~UnaryInstruction() {}
+
+};
+
+//TODO implement instruction factory for Unary NoArgs Jump and label instructions
+class InstructionParser {
 private:
 
-    int getRegCodeByName(const std::string &name) {
+    static int getRegCodeByName(const std::string &name) {
         if (name == "ax")
             return RegisterCode::AX;
         else if (name == "bx")
@@ -301,114 +170,11 @@ private:
             return RegisterCode::CX;
         else if (name == "dx")
             return RegisterCode::DX;
-        else if (name == "ip")
-            return RegisterCode::IP;
-        else if (name == "dp")
-            return RegisterCode::DP;
-        else if (name == "db")
-            return RegisterCode::DB;
         else
             return -1;
     }
 
-    Instruction *getStackAddressInstruction(std::istream &in, std::ostream &logsStream, const std::string &keyword,
-        std::string argument) {
-        argument = argument.substr(1, argument.size() - 2);
-        int address = -1;
-        try {
-            address = std::stoi(argument);
-            if (address < 0 || address >= ProcessorLimits::MEM_SIZE) {
-                logsStream << "Invalid argument of " << keyword << " command!" << std::endl;
-                Instruction *instruction = new Instruction;
-                return instruction;
-            }
-        } catch (std::invalid_argument &e) {
-
-        } catch (std::out_of_range &e) {
-            //will never occur in our test examples
-            logsStream << "Invalid argument of " << keyword << " command!" << std::endl;
-            Instruction *instruction = new Instruction;
-            return instruction;
-        }
-
-        if (address > -1) {
-            OperationPrefixCode prefixCode = OperationPrefixCode::POP_EXACT_ADDR;
-            if (keyword == "push")
-                prefixCode = OperationPrefixCode::PUSH_EXACT_ADDR;
-            Instruction *instruction =
-                    new StackOperationInstruction(prefixCode, reinterpret_cast<char *>(&address), sizeof (int));
-            return instruction;
-        }
-
-        int registerCode = getRegCodeByName(argument);
-        if (registerCode < 1) {
-            logsStream << "Invalid register in " << keyword << " command!" << std::endl;
-            return new Instruction;
-        }
-
-        OperationPrefixCode prefixCode = OperationPrefixCode::POP_REG_ADDR;
-        if (keyword == "push")
-            prefixCode = OperationPrefixCode::PUSH_REG_ADDR;
-
-        Instruction *instruction =
-                new StackOperationInstruction(prefixCode, reinterpret_cast<char *>(&registerCode), 1);
-        return instruction;
-    }
-
-    Instruction *getStackValInstruction(std::istream &in, std::ostream &logsStream, const std::string &keyword,
-                                        const std::string &argument) {
-        if (keyword == "push") {
-            double val = std::numeric_limits<double>::quiet_NaN();
-            bool valInit = false;
-            try {
-                val = std::stod(argument);
-                valInit = true;
-            } catch (std::invalid_argument &e) {
-
-            } catch (std::out_of_range &e) {
-                //Will never occur in our test examples
-                logsStream << "Invalid argument in " << keyword << " command!" << std::endl;
-                return new Instruction;
-            }
-
-            if (valInit) {
-                Instruction *instruction =
-                        new StackOperationInstruction(OperationPrefixCode::PUSH_EXACT_VAL,
-                                                      reinterpret_cast<char*>(&val), sizeof (double ));
-                return instruction;
-            }
-        }
-
-        int regCode = getRegCodeByName(argument);
-        if (regCode < 1) {
-            logsStream << "Invalid register in " << keyword << " command!" << std::endl;
-            return new Instruction;
-        }
-
-        OperationPrefixCode prefixCode = OperationPrefixCode::PUSH_REG_VAL;
-        if (keyword == "pop")
-            prefixCode = OperationPrefixCode::POP_REG_VAL;
-        return new StackOperationInstruction(prefixCode, reinterpret_cast<char*>(&regCode), 1);
-    }
-
-    Instruction *getStackOperationInstruction(std::istream &in, std::ostream &logsStream, const std::string &keyword) {
-        std::string argument;
-
-        in >> argument;
-        if (argument.empty()) {
-            Instruction *instruction = new Instruction;
-            logsStream << "Invalid argument of " << keyword << " command!" << std::endl;
-            return instruction;
-        }
-
-        if (argument[0] == '[' && argument.back() == ']') {
-            return getStackAddressInstruction(in, logsStream, keyword, argument);
-        } else {
-            return getStackValInstruction(in, logsStream, keyword, argument);
-        }
-    }
-
-    OperationPrefixCode getUnaryOperationCodeByName(const std::string &name) {
+    static int getNoArgsOperationCodeByName(const std::string &name) {
         if (name == "add")
             return OperationPrefixCode::ADD;
         else if (name == "sub")
@@ -428,12 +194,16 @@ private:
         else if (name == "out")
             return OperationPrefixCode::OUT;
         else if (name == "ret")
-            return OperationPrefixCode::RET_OFFSET;
-        else
+            return OperationPrefixCode::RET_ABS;
+        else if (name == "popd")
+            return OperationPrefixCode::POP;
+        else if (name == "halt")
             return OperationPrefixCode::HALT;
+        else
+            return -1;
     }
 
-    OperationPrefixCode getJumpOperationPrefixCodeByName(const std::string &name) {
+    static int getJumpOperationPrefixCodeByName(const std::string &name) {
         if (name == "jmp")
             return OperationPrefixCode::JMP_OFFSET_EXACT_VAL;
         else if (name == "je")
@@ -448,37 +218,254 @@ private:
             return OperationPrefixCode::JB_OFFSET_EXACT_VAL;
         else if (name == "jbe")
             return OperationPrefixCode::JBE_OFFSET_EXACT_VAL;
-        else
+        else if (name == "call")
             return OperationPrefixCode::CALL_OFFSET_EXACT_VAL;
+        else
+            return -1;
+    }
+
+    static Instruction *getNoArgsInstructionByName(const std::string &name) {
+        assert(getNoArgsOperationCodeByName(name) != -1);
+
+        OperationPrefixCode prefixCode = static_cast<OperationPrefixCode>(getNoArgsOperationCodeByName(name));
+        NoArgsInstruction *instruction = new NoArgsInstruction(prefixCode);
+
+        return instruction;
+    }
+
+    static Instruction *getJumpInstruction(std::istream &in, std::ostream &logsStream, std::string keyword,
+                                           std::unordered_map<std::string, int> &identifiersTable) {
+        assert(getJumpOperationPrefixCodeByName(keyword) != -1);
+
+        std::string identifier;
+        in >> identifier;
+
+        if (identifier.empty()) {
+            logsStream << "Label cannot be empty!" << std::endl;
+            Instruction *instruction = new Instruction;
+            return instruction;
+        }
+
+        JumpInstruction *instruction = new JumpInstruction(
+                static_cast<OperationPrefixCode>(getJumpOperationPrefixCodeByName(keyword)),
+                identifier, identifiersTable);
+        return instruction;
+    }
+
+    static Instruction *getAddrInstruction(const std::string &keyword, std::string argument,
+                                           std::ostream &logsStream) {
+        assert(keyword == "push" || keyword == "pop");
+        assert(argument.size() > 1);
+        assert(argument[0] == '[' && argument.back() == ']');
+
+        argument = argument.substr(1, argument.size() - 2);
+        int address = -1;
+        try {
+            address = std::stoi(argument);
+            if (address < 0) {
+                logsStream << "Invalid argument of " << keyword << " command!" << std::endl;
+                Instruction *instruction = new Instruction;
+                return instruction;
+            }
+        } catch (std::invalid_argument &e) {
+
+        } catch (std::out_of_range &e) {
+            //will never occur in our test examples
+            logsStream << "Invalid argument of " << keyword << " command!" << std::endl;
+            Instruction *instruction = new Instruction;
+            return instruction;
+        }
+
+        if (address > -1) {
+            OperationPrefixCode prefixCode = OperationPrefixCode::POP_EXACT_ADDR;
+            if (keyword == "push")
+                prefixCode = OperationPrefixCode::PUSH_EXACT_ADDR;
+            Instruction *instruction =
+                    new UnaryInstruction(prefixCode, reinterpret_cast<char *>(&address), sizeof (int));
+            return instruction;
+        }
+
+        int registerCode = getRegCodeByName(argument);
+        if (registerCode < 0) {
+            logsStream << "Invalid register in " << keyword << " command!" << std::endl;
+            return new Instruction;
+        }
+
+        OperationPrefixCode prefixCode = OperationPrefixCode::POP_REG_ADDR;
+        if (keyword == "push")
+            prefixCode = OperationPrefixCode::PUSH_REG_ADDR;
+
+        Instruction *instruction =
+                new UnaryInstruction(prefixCode, reinterpret_cast<char *>(&registerCode), 1);
+        return instruction;
+    }
+
+    static Instruction *getValInstruction(const std::string &keyword, const std::string &argument,
+                                          std::ostream &logsStream) {
+        if (keyword == "push") {
+            double val = std::numeric_limits<double>::quiet_NaN();
+            bool valInit = false;
+            try {
+                val = std::stod(argument);
+                valInit = true;
+            } catch (std::invalid_argument &e) {
+
+            } catch (std::out_of_range &e) {
+                //Will never occur in our test examples
+                logsStream << "Invalid argument in " << keyword << " command!" << std::endl;
+                return new Instruction;
+            }
+
+            if (valInit) {
+                Instruction *instruction =
+                        new UnaryInstruction(OperationPrefixCode::PUSH_EXACT_VAL,
+                                             reinterpret_cast<char*>(&val), sizeof (double ));
+                return instruction;
+            }
+        }
+
+        int regCode = getRegCodeByName(argument);
+        if (regCode < 0) {
+            logsStream << "Invalid register in " << keyword << " command!" << std::endl;
+            return new Instruction;
+        }
+
+        OperationPrefixCode prefixCode = OperationPrefixCode::PUSH_REG_VAL;
+        if (keyword == "pop")
+            prefixCode = OperationPrefixCode::POP_REG_VAL;
+        return new UnaryInstruction(prefixCode, reinterpret_cast<char*>(&regCode), 1);
+    }
+
+    static Instruction *getUnaryInstruction(std::istream &in, std::ostream &logsStream, std::string keyword) {
+        assert(keyword == "push" || keyword == "pop");
+
+        std::string argument;
+        in >> argument;
+
+        if (argument.empty()) {
+            logsStream << "Command argument cannot be empty!" << std::endl;
+            Instruction *instruction = new Instruction;
+            return instruction;
+        }
+
+        if (argument[0] == '[' && argument.back() == ']')
+            return getAddrInstruction(keyword, argument, logsStream);
+
+        return getValInstruction(keyword, argument, logsStream);
+    }
+
+    static bool isLabel(const std::string &identifier) {
+        if (identifier.empty())
+            return false;
+        return identifier.back() == ':';
+    }
+
+    static Instruction *getLabelInstruction(std::ostream &logsStream, std::string identifier) {
+        assert(isLabel(identifier));
+        identifier.pop_back();
+
+        if (identifier.empty()) {
+            logsStream << "Command argument cannot be empty!" << std::endl;
+            return new Instruction;
+        }
+
+        return new LabelInstruction(identifier);
     }
 
 public:
 
     //Returns pointer. It is needed to perform delete on this pointer since you don't need it anymore
-    Instruction *getInstruction(std::istream &in, std::unordered_map<std::string, int> &identifiersTable,
-                                std::ostream &logsStream) {
+    static Instruction *getInstruction(std::istream &in, std::unordered_map<std::string, int> &identifiersTable,
+                                       std::ostream &logsStream) {
         std::string keyword;
         in >> keyword;
-        if (keyword == "in" || keyword == "out") {
-            OperationPrefixCode prefixCode = getUnaryOperationCodeByName(keyword);
-            return new IOInstruction(prefixCode);
-        } else if (keyword == "push" || keyword == "pop") {
-            return getStackOperationInstruction(in, logsStream, keyword);
-        } else if (keyword == "add" || keyword == "sub" || keyword == "mul" || keyword == "div" ||
-                    keyword == "sin" || keyword == "cos" || keyword == "sqrt") {
-            OperationPrefixCode prefixCode = getUnaryOperationCodeByName(keyword);
-            return new MathOperationInstruction(prefixCode);
-        } else if (keyword == "jmp" || keyword == "je" || keyword == "jne" || keyword == "ja" ||
-                    keyword == "jae" || keyword == "jb" || keyword == "jbe" || keyword == "call") {
-            OperationPrefixCode prefixCode = getJumpOperationPrefixCodeByName(keyword);
-            std::string argument;
-            std::cin >> argument;
-            Instruction *instruction = new JumpInstruction(prefixCode, argument, identifiersTable);
+        if (getNoArgsOperationCodeByName(keyword) != -1) {
+            Instruction *instruction = getNoArgsInstructionByName(keyword);
             return instruction;
-        } else if (keyword == "ret" || keyword == "halt") {
-
+        } else if (getJumpOperationPrefixCodeByName(keyword) != -1) {
+            Instruction *instruction = getJumpInstruction(in, logsStream, keyword, identifiersTable);
+            return instruction;
+        } else if (keyword == "push" || keyword == "pop") {
+            Instruction *instruction = getUnaryInstruction(in, logsStream, keyword);
+            return instruction;
+        } else if (isLabel(keyword)) {
+            Instruction *instruction = getLabelInstruction(logsStream, keyword);
+            return instruction;
+        } else {
+            logsStream << "Invalid keyword or identifier " << keyword << std::endl;
+            Instruction *instruction = new Instruction;
+            return instruction;
         }
     }
+
+};
+
+class Assembler {
+private:
+    std::istream &_in;
+    std::ostream &_out;
+    std::ostream &_assemblerLogsStream;
+    std::unordered_map<std::string, int> _identifiersTable;
+    std::vector<Instruction *> _instructions;
+
+    void freeInstructions() {
+        for (Instruction* val : _instructions)
+            delete val;
+        _instructions.clear();
+    }
+
+    void prepareLabels() {
+        int curAddr = 0;
+        for (Instruction* val : _instructions) {
+            if (LabelInstruction *v = dynamic_cast<LabelInstruction *>(val)) {
+                _identifiersTable[v->getIdentifier()] = curAddr;
+            }
+            curAddr += val->getOperationSize();
+        }
+    }
+
+public:
+    Assembler(std::istream &in, std::ostream &out, std::ostream &logs): _in(in), _out(out), _assemblerLogsStream(logs){
+
+    }
+
+    bool assembleAll() {
+        _identifiersTable.clear();
+        freeInstructions();
+        _instructions.reserve(1000);
+
+        while (!_in.eof()) {
+            Instruction *instruction = InstructionParser::getInstruction(_in, _identifiersTable, _assemblerLogsStream);
+
+            if (instruction->getStatus() == InstructionStatus::FAILED) {
+                delete instruction;
+                break;
+            }
+
+            _instructions.push_back(instruction);
+        }
+
+        prepareLabels();
+
+        int curAddr = 0;
+        char buf[20];
+        for (Instruction* curInst : _instructions) {
+            if (LabelInstruction *v = dynamic_cast<LabelInstruction *>(curInst))
+                continue;
+            bool success = curInst->tryGetOperationCode(buf, 20, curAddr);
+            if (!success) {
+                _assemblerLogsStream << "Cannot generate code!" << std::endl;
+                freeInstructions();
+                return false;
+            }
+            _out.write(buf, curInst->getOperationSize());
+            curAddr += curInst->getOperationSize();
+        }
+
+        return true;
+    }
+
+
 
 };
 
